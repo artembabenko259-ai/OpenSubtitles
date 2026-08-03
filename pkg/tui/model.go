@@ -125,6 +125,51 @@ func isMediaFile(ext string) bool {
 	return mediaExts[ext]
 }
 
+func dirHasMedia(dirPath string) bool {
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			if isMediaFile(filepath.Ext(e.Name())) {
+				return true
+			}
+		} else {
+			// Check 1 level deeper
+			subEntries, subErr := os.ReadDir(filepath.Join(dirPath, e.Name()))
+			if subErr == nil {
+				for _, se := range subEntries {
+					if !se.IsDir() && isMediaFile(filepath.Ext(se.Name())) {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+func normalizeKey(k string) string {
+	k = strings.ToLower(k)
+	// Map Ukrainian / Russian layout keys to English hotkeys
+	switch k {
+	case "k", "л":
+		return "k"
+	case "l", "д":
+		return "l"
+	case "m", "ь":
+		return "m"
+	case "q", "й":
+		return "q"
+	case "y", "н":
+		return "y"
+	case "n", "т":
+		return "n"
+	}
+	return k
+}
+
 func (m *Model) loadFiles() {
 	entries, err := os.ReadDir(m.CurrentDir)
 	if err != nil {
@@ -136,17 +181,20 @@ func (m *Model) loadFiles() {
 
 	parent := filepath.Dir(m.CurrentDir)
 	if parent != m.CurrentDir {
-		items = append(items, FileItem{Name: ".. (Up Level)", Path: parent, IsDir: true})
+		items = append(items, FileItem{Name: "..", Path: parent, IsDir: true})
 	}
 
 	for _, entry := range entries {
 		path := filepath.Join(m.CurrentDir, entry.Name())
 		if entry.IsDir() {
-			items = append(items, FileItem{Name: "[DIR] " + entry.Name(), Path: path, IsDir: true})
+			// Only show directory if it contains media files or media subfolders
+			if dirHasMedia(path) {
+				items = append(items, FileItem{Name: entry.Name() + "/", Path: path, IsDir: true})
+			}
 		} else {
 			ext := filepath.Ext(entry.Name())
 			if isMediaFile(ext) {
-				items = append(items, FileItem{Name: "[FILE] " + entry.Name(), Path: path, IsDir: false})
+				items = append(items, FileItem{Name: entry.Name(), Path: path, IsDir: false})
 			}
 		}
 	}
@@ -181,11 +229,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
-		// Global Key Handlers
-		key := strings.ToLower(msg.String())
+		rawKey := msg.String()
+		key := normalizeKey(rawKey)
 
 		if m.State == StateConnect {
-			switch msg.String() {
+			switch rawKey {
 			case "enter":
 				apiKey := strings.TrimSpace(m.TextInput.Value())
 				m.Config.OpenRouterAPIKey = apiKey
@@ -222,12 +270,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch m.State {
 		case StateFilePicker:
-			switch msg.String() {
-			case "up":
+			switch rawKey {
+			case "up", "k":
 				if m.SelectedIdx > 0 {
 					m.SelectedIdx--
 				}
-			case "down":
+			case "down", "j":
 				if m.SelectedIdx < len(m.Files)-1 {
 					m.SelectedIdx++
 				}
@@ -252,28 +300,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case StateConfirmProcess:
 			switch key {
-			case "y", "enter":
+			case "y":
 				m.State = StateProcessing
 				return m, m.startProcessing()
-			case "n", "esc":
+			case "n":
+				m.State = StateFilePicker
+			}
+			if rawKey == "enter" {
+				m.State = StateProcessing
+				return m, m.startProcessing()
+			} else if rawKey == "esc" {
 				m.State = StateFilePicker
 			}
 
 		case StateModelSelect:
-			switch msg.String() {
-			case "up":
+			switch rawKey {
+			case "up", "k":
 				if m.WhisperIdx > 0 {
 					m.WhisperIdx--
 				}
-			case "down":
+			case "down", "j":
 				if m.WhisperIdx < len(m.WhisperModels)-1 {
 					m.WhisperIdx++
 				}
-			case "right":
+			case "right", "l":
 				if m.TranslateIdx < len(m.TranslateModels)-1 {
 					m.TranslateIdx++
 				}
-			case "left":
+			case "left", "h":
 				if m.TranslateIdx > 0 {
 					m.TranslateIdx--
 				}
@@ -286,12 +340,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case StateLangSelect:
-			switch msg.String() {
-			case "up":
+			switch rawKey {
+			case "up", "k":
 				if m.LangIdx > 0 {
 					m.LangIdx--
 				}
-			case "down":
+			case "down", "j":
 				if m.LangIdx < len(m.Languages)-1 {
 					m.LangIdx++
 				}
@@ -303,7 +357,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case StateComplete:
-			switch msg.String() {
+			switch rawKey {
 			case "enter", "esc":
 				m.State = StateFilePicker
 			}
@@ -355,11 +409,11 @@ func (m Model) View() string {
 
 	switch m.State {
 	case StateFilePicker:
-		s.WriteString(SubtitleStyle.Render("Select File or Folder:") + "\n")
-		s.WriteString(MutedStyle.Render("Current Path: "+m.CurrentDir) + "\n\n")
+		s.WriteString(SubtitleStyle.Render("Media Files:") + "\n")
+		s.WriteString(MutedStyle.Render("Path: "+m.CurrentDir) + "\n\n")
 
 		if len(m.Files) == 0 {
-			s.WriteString(ItemStyle.Render("No media files or subfolders found in this directory."))
+			s.WriteString(ItemStyle.Render("No media files found in this folder."))
 		} else {
 			maxVisible := 10
 			startIdx := 0
@@ -391,7 +445,7 @@ func (m Model) View() string {
 			}
 		}
 
-		s.WriteString(HelpStyle.Render("\n[Enter] Open / Process    [K] Set API Key    [L] Target Language    [M] Select Models    [Q] Quit"))
+		s.WriteString(HelpStyle.Render("\n[Enter] Open / Process    [K] API Key    [L] Language    [M] Models    [Q] Quit"))
 
 	case StateConfirmProcess:
 		s.WriteString(SubtitleStyle.Render("Confirm Subtitle Processing:") + "\n\n")
@@ -424,7 +478,7 @@ func (m Model) View() string {
 			}
 			s.WriteString(prefix + tm + "\n")
 		}
-		s.WriteString(HelpStyle.Render("\n[↑/↓] Change Whisper  [←/→] Change Translation  [Enter] Save"))
+		s.WriteString(HelpStyle.Render("\n[↑/↓] STT  [←/→] Translation  [Enter] Save"))
 
 	case StateLangSelect:
 		s.WriteString(SubtitleStyle.Render("Select Target Language:") + "\n\n")
