@@ -74,7 +74,11 @@ type ProcessDoneMsg struct {
 func NewModel() Model {
 	cfg, _ := engine.LoadConfig()
 
-	dir, _ := os.Getwd()
+	// Default scan root to User Home directory (e.g. C:\Users\User)
+	dir, err := os.UserHomeDir()
+	if err != nil || dir == "" {
+		dir, _ = os.Getwd()
+	}
 
 	ti := textinput.New()
 	ti.Placeholder = "sk-or-v1-..."
@@ -151,7 +155,7 @@ func normalizeKey(k string) string {
 func (m *Model) loadFiles() {
 	var items []FileItem
 
-	// Recursively scan current directory for media files ONLY
+	// Recursively scan entire User disk space (Desktop, Downloads, Videos, Documents, etc.)
 	_ = filepath.WalkDir(m.CurrentDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -159,8 +163,8 @@ func (m *Model) loadFiles() {
 
 		if d.IsDir() {
 			name := d.Name()
-			// Skip hidden and system build folders for speed
-			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "AppData" || name == "$RECYCLE.BIN" || name == "System Volume Information" {
+			// Skip system / build directories for high speed scanning
+			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "AppData" || name == "$RECYCLE.BIN" || name == "System Volume Information" || name == "Windows" || name == "Program Files" || name == "Program Files (x86)" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -248,7 +252,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "r":
 			m.loadFiles()
-			m.StatusMsg = "Rescanned directory for media files"
+			m.StatusMsg = "Rescanned disk for media files"
 			return m, nil
 		}
 
@@ -387,8 +391,8 @@ func (m Model) View() string {
 
 	switch m.State {
 	case StateFilePicker:
-		s.WriteString(SubtitleStyle.Render(fmt.Sprintf("Discovered Media Files (%d found):", len(m.Files))) + "\n")
-		s.WriteString(MutedStyle.Render("Scanning from: "+m.CurrentDir) + "\n\n")
+		s.WriteString(SubtitleStyle.Render(fmt.Sprintf("Discovered System Media Files (%d found):", len(m.Files))) + "\n")
+		s.WriteString(MutedStyle.Render("Scanning User Disk: "+m.CurrentDir) + "\n\n")
 
 		if len(m.Files) == 0 {
 			s.WriteString(ItemStyle.Render("No media files (.mp4, .mkv, .mov, .mp3, .wav, etc.) found."))
