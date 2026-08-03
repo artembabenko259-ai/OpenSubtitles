@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,9 +25,8 @@ const (
 )
 
 type FileItem struct {
-	Name  string
-	Path  string
-	IsDir bool
+	Name string
+	Path string
 }
 
 type Model struct {
@@ -116,43 +116,19 @@ func NewModel() Model {
 func isMediaFile(ext string) bool {
 	ext = strings.ToLower(ext)
 	mediaExts := map[string]bool{
+		// Video
 		".mp4": true, ".mkv": true, ".mov": true, ".avi": true,
 		".webm": true, ".flv": true, ".wmv": true, ".m4v": true,
 		".3gp": true, ".ts": true,
+		// Audio
 		".mp3": true, ".wav": true, ".m4a": true, ".aac": true,
 		".flac": true, ".ogg": true, ".opus": true, ".wma": true,
 	}
 	return mediaExts[ext]
 }
 
-func dirHasMedia(dirPath string) bool {
-	entries, err := os.ReadDir(dirPath)
-	if err != nil {
-		return false
-	}
-	for _, e := range entries {
-		if !e.IsDir() {
-			if isMediaFile(filepath.Ext(e.Name())) {
-				return true
-			}
-		} else {
-			// Check 1 level deeper
-			subEntries, subErr := os.ReadDir(filepath.Join(dirPath, e.Name()))
-			if subErr == nil {
-				for _, se := range subEntries {
-					if !se.IsDir() && isMediaFile(filepath.Ext(se.Name())) {
-						return true
-					}
-				}
-			}
-		}
-	}
-	return false
-}
-
 func normalizeKey(k string) string {
 	k = strings.ToLower(k)
-	// Map Ukrainian / Russian layout keys to English hotkeys
 	switch k {
 	case "k", "л":
 		return "k"
@@ -166,38 +142,41 @@ func normalizeKey(k string) string {
 		return "y"
 	case "n", "т":
 		return "n"
+	case "r", "к":
+		return "r"
 	}
 	return k
 }
 
 func (m *Model) loadFiles() {
-	entries, err := os.ReadDir(m.CurrentDir)
-	if err != nil {
-		m.Err = err
-		return
-	}
-
 	var items []FileItem
 
-	parent := filepath.Dir(m.CurrentDir)
-	if parent != m.CurrentDir {
-		items = append(items, FileItem{Name: "..", Path: parent, IsDir: true})
-	}
-
-	for _, entry := range entries {
-		path := filepath.Join(m.CurrentDir, entry.Name())
-		if entry.IsDir() {
-			// Only show directory if it contains media files or media subfolders
-			if dirHasMedia(path) {
-				items = append(items, FileItem{Name: entry.Name() + "/", Path: path, IsDir: true})
-			}
-		} else {
-			ext := filepath.Ext(entry.Name())
-			if isMediaFile(ext) {
-				items = append(items, FileItem{Name: entry.Name(), Path: path, IsDir: false})
-			}
+	// Recursively scan current directory for media files ONLY
+	_ = filepath.WalkDir(m.CurrentDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
 		}
-	}
+
+		if d.IsDir() {
+			name := d.Name()
+			// Skip hidden and system build folders for speed
+			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "AppData" || name == "$RECYCLE.BIN" || name == "System Volume Information" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		ext := filepath.Ext(d.Name())
+		if isMediaFile(ext) {
+			rel, relErr := filepath.Rel(m.CurrentDir, path)
+			displayName := rel
+			if relErr != nil {
+				displayName = d.Name()
+			}
+			items = append(items, FileItem{Name: displayName, Path: path})
+		}
+		return nil
+	})
 
 	m.Files = items
 	m.SelectedIdx = 0
@@ -266,6 +245,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "l":
 			m.State = StateLangSelect
 			return m, nil
+
+		case "r":
+			m.loadFiles()
+			m.StatusMsg = "Rescanned directory for media files"
+			return m, nil
 		}
 
 		switch m.State {
@@ -284,18 +268,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					break
 				}
 				item := m.Files[m.SelectedIdx]
-				if item.IsDir {
-					m.CurrentDir = item.Path
-					m.loadFiles()
-				} else {
-					if m.Config.OpenRouterAPIKey == "" {
-						m.Err = fmt.Errorf("API Key is not set! Press 'K' to enter API Key first")
-						break
-					}
-					m.SelectedPath = item.Path
-					m.OutputDir = filepath.Dir(item.Path)
-					m.State = StateConfirmProcess
+				if m.Config.OpenRouterAPIKey == "" {
+					m.Err = fmt.Errorf("API Key is not set! Press 'K' to enter API Key first")
+					break
 				}
+				m.SelectedPath = item.Path
+				m.OutputDir = filepath.Dir(item.Path)
+				m.State = StateConfirmProcess
 			}
 
 		case StateConfirmProcess:
@@ -391,7 +370,6 @@ func (m Model) View() string {
 
 	s.WriteString(TitleStyle.Render("OPENSUBTITLES CONTROL PANEL") + "\n")
 
-	// Current Settings Status Bar
 	keyStatus := "[NOT SET - PRESS K]"
 	if m.Config.OpenRouterAPIKey != "" {
 		keyStatus = "[CONFIGURED]"
@@ -409,11 +387,11 @@ func (m Model) View() string {
 
 	switch m.State {
 	case StateFilePicker:
-		s.WriteString(SubtitleStyle.Render("Media Files:") + "\n")
-		s.WriteString(MutedStyle.Render("Path: "+m.CurrentDir) + "\n\n")
+		s.WriteString(SubtitleStyle.Render(fmt.Sprintf("Discovered Media Files (%d found):", len(m.Files))) + "\n")
+		s.WriteString(MutedStyle.Render("Scanning from: "+m.CurrentDir) + "\n\n")
 
 		if len(m.Files) == 0 {
-			s.WriteString(ItemStyle.Render("No media files found in this folder."))
+			s.WriteString(ItemStyle.Render("No media files (.mp4, .mkv, .mov, .mp3, .wav, etc.) found."))
 		} else {
 			maxVisible := 10
 			startIdx := 0
@@ -445,7 +423,7 @@ func (m Model) View() string {
 			}
 		}
 
-		s.WriteString(HelpStyle.Render("\n[Enter] Open / Process    [K] API Key    [L] Language    [M] Models    [Q] Quit"))
+		s.WriteString(HelpStyle.Render("\n[Enter] Process    [K] API Key    [L] Language    [M] Models    [R] Rescan    [Q] Quit"))
 
 	case StateConfirmProcess:
 		s.WriteString(SubtitleStyle.Render("Confirm Subtitle Processing:") + "\n\n")
