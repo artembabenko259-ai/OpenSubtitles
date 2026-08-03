@@ -1,0 +1,16 @@
+# Binaries & Executables
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.bin
+
+# Temporary & Build files
+*.test
+*.out
+*.prof
+vdisk_state.txt
+
+# Config with API keys
+config.json
