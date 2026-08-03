@@ -3,44 +3,35 @@ package tui
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	// Colors
-	primaryColor   = lipgloss.Color("#7D56F4") // Purple
-	secondaryColor = lipgloss.Color("#04B5D5") // Cyan
-	accentColor    = lipgloss.Color("#FFD700") // Gold / Yellow
-	successColor   = lipgloss.Color("#00FF7F") // Spring Green
-	errorColor     = lipgloss.Color("#FF4500") // Orange Red
-	mutedColor     = lipgloss.Color("#626262") // Dark Gray
+	// Neutral minimalist palette
+	fgColor      = lipgloss.Color("#C0C0C0") // Silver/Gray
+	highlightColor = lipgloss.Color("#FFFFFF") // White
+	mutedColor   = lipgloss.Color("#666666") // Dim Gray
+	borderColor  = lipgloss.Color("#444444") // Dark Border Gray
 
-	// Styles
+	// Minimalist Styles
 	TitleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(primaryColor).
-			Padding(0, 1).
+			Foreground(highlightColor).
 			MarginBottom(1)
 
 	SubtitleStyle = lipgloss.NewStyle().
-			Foreground(secondaryColor).
+			Foreground(fgColor).
 			Bold(true)
 
 	HeaderBoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(primaryColor).
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(borderColor).
 			Padding(1, 2).
 			MarginBottom(1)
 
 	ItemStyle = lipgloss.NewStyle().
+			Foreground(fgColor).
 			PaddingLeft(2)
 
 	SelectedItemStyle = lipgloss.NewStyle().
 				PaddingLeft(1).
-				Foreground(accentColor).
-				Bold(true)
-
-	StatusBadgeStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FFFFFF")).
-				Background(secondaryColor).
-				Padding(0, 1).
+				Foreground(highlightColor).
 				Bold(true)
 
 	MutedStyle = lipgloss.NewStyle().
@@ -51,10 +42,10 @@ var (
 			MarginTop(1)
 
 	ErrorStyle = lipgloss.NewStyle().
-			Foreground(errorColor).
+			Foreground(lipgloss.Color("#FF5555")).
 			Bold(true)
 
 	SuccessStyle = lipgloss.NewStyle().
-			Foreground(successColor).
+			Foreground(lipgloss.Color("#55FF55")).
 			Bold(true)
 )

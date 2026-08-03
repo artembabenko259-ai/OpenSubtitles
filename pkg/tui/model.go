@@ -76,7 +76,7 @@ func NewModel() Model {
 	dir, _ := os.Getwd()
 
 	ti := textinput.New()
-	ti.Placeholder = "Paste OpenRouter API Key (sk-or-v1-...)"
+	ti.Placeholder = "API Key..."
 	ti.Focus()
 	ti.CharLimit = 200
 
@@ -124,17 +124,17 @@ func (m *Model) loadFiles() {
 	// Parent dir entry
 	parent := filepath.Dir(m.CurrentDir)
 	if parent != m.CurrentDir {
-		items = append(items, FileItem{Name: ".. (Parent Directory)", Path: parent, IsDir: true})
+		items = append(items, FileItem{Name: "..", Path: parent, IsDir: true})
 	}
 
 	for _, entry := range entries {
 		path := filepath.Join(m.CurrentDir, entry.Name())
 		if entry.IsDir() {
-			items = append(items, FileItem{Name: "📁 " + entry.Name(), Path: path, IsDir: true})
+			items = append(items, FileItem{Name: entry.Name() + "/", Path: path, IsDir: true})
 		} else {
 			ext := strings.ToLower(filepath.Ext(entry.Name()))
 			if ext == ".mp4" || ext == ".mkv" || ext == ".mov" || ext == ".avi" {
-				items = append(items, FileItem{Name: "🎬 " + entry.Name(), Path: path, IsDir: false})
+				items = append(items, FileItem{Name: entry.Name(), Path: path, IsDir: false})
 			}
 		}
 	}
@@ -222,7 +222,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				key := strings.TrimSpace(m.TextInput.Value())
 				m.Config.OpenRouterAPIKey = key
 				_ = engine.SaveConfig(m.Config)
-				m.StatusMsg = "OpenRouter API Key saved successfully!"
+				m.StatusMsg = "API Key saved"
 				m.State = StateFilePicker
 				return m, nil
 			case "esc":
@@ -253,7 +253,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.Config.WhisperModel = m.WhisperModels[m.WhisperIdx]
 				m.Config.TranslationModel = m.TranslateModels[m.TranslateIdx]
 				_ = engine.SaveConfig(m.Config)
-				m.StatusMsg = fmt.Sprintf("Models set: %s / %s", m.Config.WhisperModel, m.Config.TranslationModel)
+				m.StatusMsg = fmt.Sprintf("Models: %s / %s", m.Config.WhisperModel, m.Config.TranslationModel)
 				m.State = StateFilePicker
 			}
 
@@ -270,7 +270,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "enter", "esc":
 				m.Config.TargetLanguage = m.Languages[m.LangIdx]
 				_ = engine.SaveConfig(m.Config)
-				m.StatusMsg = "Target language set to: " + m.Config.TargetLanguage
+				m.StatusMsg = "Language: " + m.Config.TargetLanguage
 				m.State = StateFilePicker
 			}
 
@@ -307,86 +307,85 @@ func (m Model) startProcessing() tea.Cmd {
 func (m Model) View() string {
 	var s strings.Builder
 
-	s.WriteString(TitleStyle.Render(" OpenSubtitles AI "))
-	s.WriteString(" " + StatusBadgeStyle.Render("OpenRouter + Bubble Tea") + "\n\n")
+	s.WriteString(TitleStyle.Render("OPENSUBTITLES") + "\n\n")
 
 	if m.StatusMsg != "" {
-		s.WriteString(SuccessStyle.Render("✔ "+m.StatusMsg) + "\n\n")
+		s.WriteString(SuccessStyle.Render("[OK] "+m.StatusMsg) + "\n\n")
 	}
 	if m.Err != nil {
-		s.WriteString(ErrorStyle.Render("✖ Error: "+m.Err.Error()) + "\n\n")
+		s.WriteString(ErrorStyle.Render("[ERR] "+m.Err.Error()) + "\n\n")
 	}
 
 	switch m.State {
 	case StateFilePicker:
-		s.WriteString(SubtitleStyle.Render("📂 Select Video File (.mp4, .mkv, .mov):") + "\n")
-		s.WriteString(MutedStyle.Render("Current Directory: "+m.CurrentDir) + "\n\n")
+		s.WriteString(SubtitleStyle.Render("Files:") + "\n")
+		s.WriteString(MutedStyle.Render("Dir: "+m.CurrentDir) + "\n\n")
 
 		if len(m.Files) == 0 {
-			s.WriteString(ItemStyle.Render("No video files or folders found here."))
+			s.WriteString(ItemStyle.Render("No video files found."))
 		} else {
 			for i, file := range m.Files {
 				cursor := "  "
 				style := ItemStyle
 				if i == m.SelectedIdx {
-					cursor = "➜ "
+					cursor = "> "
 					style = SelectedItemStyle
 				}
 				s.WriteString(style.Render(cursor+file.Name) + "\n")
 			}
 		}
 
-		s.WriteString(HelpStyle.Render("\n[↑/↓] Navigate  • [Enter] Select/Open  • [/connect] API Key  • [/model] Models  • [/lang] Target Language  • [q] Quit"))
+		s.WriteString(HelpStyle.Render("\n[↑/↓] Navigate  [Enter] Select  [/connect] API Key  [/model] Models  [/lang] Language  [q] Quit"))
 
 	case StateConnect:
-		s.WriteString(SubtitleStyle.Render("🔑 Set OpenRouter API Key:") + "\n\n")
+		s.WriteString(SubtitleStyle.Render("API Key:") + "\n\n")
 		s.WriteString(m.TextInput.View() + "\n\n")
-		s.WriteString(HelpStyle.Render("[Enter] Save Key  • [Esc] Cancel"))
+		s.WriteString(HelpStyle.Render("[Enter] Save  [Esc] Back"))
 
 	case StateModelSelect:
-		s.WriteString(SubtitleStyle.Render("🤖 Select AI Models:") + "\n\n")
-		s.WriteString("Whisper Model (Speech-to-Text):\n")
+		s.WriteString(SubtitleStyle.Render("Models:") + "\n\n")
+		s.WriteString("STT Model:\n")
 		for i, wm := range m.WhisperModels {
 			prefix := "  "
 			if i == m.WhisperIdx {
-				prefix = "➜ "
+				prefix = "> "
 			}
 			s.WriteString(prefix + wm + "\n")
 		}
-		s.WriteString("\nTranslation LLM Model:\n")
+		s.WriteString("\nTranslation Model:\n")
 		for i, tm := range m.TranslateModels {
 			prefix := "  "
 			if i == m.TranslateIdx {
-				prefix = "➜ "
+				prefix = "> "
 			}
 			s.WriteString(prefix + tm + "\n")
 		}
-		s.WriteString(HelpStyle.Render("\n[↑/↓] Change Whisper  • [←/→] Change Translation  • [Enter] Save"))
+		s.WriteString(HelpStyle.Render("\n[↑/↓] STT  [←/→] Translation  [Enter] Save"))
 
 	case StateLangSelect:
-		s.WriteString(SubtitleStyle.Render("🌐 Select Target Translation Language:") + "\n\n")
+		s.WriteString(SubtitleStyle.Render("Language:") + "\n\n")
 		for i, lang := range m.Languages {
 			prefix := "  "
 			style := ItemStyle
 			if i == m.LangIdx {
-				prefix = "➜ "
+				prefix = "> "
 				style = SelectedItemStyle
 			}
 			s.WriteString(style.Render(prefix+lang) + "\n")
 		}
-		s.WriteString(HelpStyle.Render("\n[↑/↓] Select Language  • [Enter] Save"))
+		s.WriteString(HelpStyle.Render("\n[↑/↓] Select  [Enter] Save"))
 
 	case StateProcessing:
-		s.WriteString(SubtitleStyle.Render("⚙ Processing Video Subtitles...") + "\n\n")
-		s.WriteString(fmt.Sprintf("Video: %s\n", filepath.Base(m.SelectedPath)))
-		s.WriteString(fmt.Sprintf("Target Language: %s\n\n", m.Config.TargetLanguage))
+		s.WriteString(SubtitleStyle.Render("Processing...") + "\n\n")
+		s.WriteString(fmt.Sprintf("File: %s\n", filepath.Base(m.SelectedPath)))
+		s.WriteString(fmt.Sprintf("Lang: %s\n\n", m.Config.TargetLanguage))
 		s.WriteString(fmt.Sprintf("Progress: %.0f%%\n", m.ProgressPercent))
 		s.WriteString(m.ProgressStep + "\n")
 
 	case StateComplete:
-		s.WriteString(SuccessStyle.Render("🎉 Subtitles Successfully Rendered!") + "\n\n")
-		s.WriteString("Saved Video: " + m.ResultPath + "\n\n")
-		s.WriteString(HelpStyle.Render("[Enter] Back to Main Menu"))
+		s.WriteString(SuccessStyle.Render("Done!") + "\n\n")
+		s.WriteString("Saved: " + m.ResultPath + "\n\n")
+		s.WriteString(HelpStyle.Render("[Enter] Back"))
 	}
 
 	return HeaderBoxStyle.Render(s.String())
