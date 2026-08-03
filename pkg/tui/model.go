@@ -112,6 +112,20 @@ func NewModel() Model {
 	return m
 }
 
+func isMediaFile(ext string) bool {
+	ext = strings.ToLower(ext)
+	mediaExts := map[string]bool{
+		// Video
+		".mp4": true, ".mkv": true, ".mov": true, ".avi": true,
+		".webm": true, ".flv": true, ".wmv": true, ".m4v": true,
+		".3gp": true, ".ts": true,
+		// Audio
+		".mp3": true, ".wav": true, ".m4a": true, ".aac": true,
+		".flac": true, ".ogg": true, ".opus": true, ".wma": true,
+	}
+	return mediaExts[ext]
+}
+
 func (m *Model) loadFiles() {
 	entries, err := os.ReadDir(m.CurrentDir)
 	if err != nil {
@@ -132,8 +146,8 @@ func (m *Model) loadFiles() {
 		if entry.IsDir() {
 			items = append(items, FileItem{Name: entry.Name() + "/", Path: path, IsDir: true})
 		} else {
-			ext := strings.ToLower(filepath.Ext(entry.Name()))
-			if ext == ".mp4" || ext == ".mkv" || ext == ".mov" || ext == ".avi" {
+			ext := filepath.Ext(entry.Name())
+			if isMediaFile(ext) {
 				items = append(items, FileItem{Name: entry.Name(), Path: path, IsDir: false})
 			}
 		}
@@ -212,6 +226,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.SelectedPath = item.Path
 					m.OutputDir = filepath.Dir(item.Path)
+					m.State = StateProcessing
 					return m, m.startProcessing()
 				}
 			}
@@ -318,13 +333,29 @@ func (m Model) View() string {
 
 	switch m.State {
 	case StateFilePicker:
-		s.WriteString(SubtitleStyle.Render("Files:") + "\n")
+		s.WriteString(SubtitleStyle.Render("Files (Media & Folders):") + "\n")
 		s.WriteString(MutedStyle.Render("Dir: "+m.CurrentDir) + "\n\n")
 
 		if len(m.Files) == 0 {
-			s.WriteString(ItemStyle.Render("No video files found."))
+			s.WriteString(ItemStyle.Render("No media files or folders found."))
 		} else {
-			for i, file := range m.Files {
+			// Paginate file list to avoid pushing header/footer out of view
+			maxVisible := 10
+			startIdx := 0
+			if m.SelectedIdx >= maxVisible {
+				startIdx = m.SelectedIdx - maxVisible + 1
+			}
+			endIdx := startIdx + maxVisible
+			if endIdx > len(m.Files) {
+				endIdx = len(m.Files)
+			}
+
+			if startIdx > 0 {
+				s.WriteString(MutedStyle.Render("  ▲ ...") + "\n")
+			}
+
+			for i := startIdx; i < endIdx; i++ {
+				file := m.Files[i]
 				cursor := "  "
 				style := ItemStyle
 				if i == m.SelectedIdx {
@@ -332,6 +363,10 @@ func (m Model) View() string {
 					style = SelectedItemStyle
 				}
 				s.WriteString(style.Render(cursor+file.Name) + "\n")
+			}
+
+			if endIdx < len(m.Files) {
+				s.WriteString(MutedStyle.Render("  ▼ ...") + "\n")
 			}
 		}
 
@@ -376,7 +411,7 @@ func (m Model) View() string {
 		s.WriteString(HelpStyle.Render("\n[↑/↓] Select  [Enter] Save"))
 
 	case StateProcessing:
-		s.WriteString(SubtitleStyle.Render("Processing...") + "\n\n")
+		s.WriteString(SubtitleStyle.Render("Processing Media...") + "\n\n")
 		s.WriteString(fmt.Sprintf("File: %s\n", filepath.Base(m.SelectedPath)))
 		s.WriteString(fmt.Sprintf("Lang: %s\n\n", m.Config.TargetLanguage))
 		s.WriteString(fmt.Sprintf("Progress: %.0f%%\n", m.ProgressPercent))
@@ -384,7 +419,7 @@ func (m Model) View() string {
 
 	case StateComplete:
 		s.WriteString(SuccessStyle.Render("Done!") + "\n\n")
-		s.WriteString("Saved: " + m.ResultPath + "\n\n")
+		s.WriteString("Output: " + m.ResultPath + "\n\n")
 		s.WriteString(HelpStyle.Render("[Enter] Back"))
 	}
 
