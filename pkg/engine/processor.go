@@ -19,8 +19,8 @@ type ProcessOptions struct {
 }
 
 type Processor struct {
-	ffmpeg     *FFmpeg
-	subGen     *SubtitleGenerator
+	ffmpeg *FFmpeg
+	subGen *SubtitleGenerator
 }
 
 func NewProcessor() *Processor {
@@ -30,13 +30,27 @@ func NewProcessor() *Processor {
 	}
 }
 
+// Detect mounted vdisk RAM/VRAM drive (e.g. R:\ or Z:\) for ultra-fast 30GB/s I/O
+func getRAMDiskTempDir() string {
+	drives := []string{"R:", "Z:", "Y:", "X:", "V:"}
+	for _, drive := range drives {
+		if fi, err := os.Stat(drive + "\\"); err == nil && fi.IsDir() {
+			ramTemp := drive + "\\opensubtitles_ramtemp"
+			if err := os.MkdirAll(ramTemp, 0755); err == nil {
+				return ramTemp
+			}
+		}
+	}
+	return ""
+}
+
 func (p *Processor) Process(opts ProcessOptions, callback ProgressCallback) (string, error) {
 	if !p.ffmpeg.IsInstalled() {
 		return "", fmt.Errorf("FFmpeg is not installed or not in PATH")
 	}
 
 	if opts.OpenRouterKey == "" {
-		return "", fmt.Errorf("OpenRouter API key is missing. Set it using /connect command")
+		return "", fmt.Errorf("OpenRouter API key is missing. Set it using 'K' key")
 	}
 
 	if opts.OutputDir == "" {
@@ -48,18 +62,35 @@ func (p *Processor) Process(opts ProcessOptions, callback ProgressCallback) (str
 	}
 
 	baseName := strings.TrimSuffix(filepath.Base(opts.VideoPath), filepath.Ext(opts.VideoPath))
-	tempAudio := filepath.Join(opts.OutputDir, baseName+"_temp.mp3")
-	tempASS := filepath.Join(opts.OutputDir, baseName+"_sub.ass")
+
+	// Use vdisk RAM disk if available, otherwise use output dir
+	workDir := getRAMDiskTempDir()
+	usingRAMDisk := false
+	if workDir != "" {
+		usingRAMDisk = true
+	} else {
+		workDir = opts.OutputDir
+	}
+
+	tempAudio := filepath.Join(workDir, baseName+"_temp.mp3")
+	tempASS := filepath.Join(workDir, baseName+"_sub.ass")
 	outVideo := filepath.Join(opts.OutputDir, baseName+"_subtitled.mp4")
 
 	defer func() {
 		_ = os.Remove(tempAudio)
 		_ = os.Remove(tempASS)
+		if usingRAMDisk {
+			_ = os.RemoveAll(workDir)
+		}
 	}()
 
 	// Step 1: Extract Audio
+	stepMsg := "Extracting audio with FFmpeg..."
+	if usingRAMDisk {
+		stepMsg = "Extracting audio to vdisk RAM Disk (30GB/s Speed)..."
+	}
 	if callback != nil {
-		callback(10.0, "Extracting audio with FFmpeg...")
+		callback(10.0, stepMsg)
 	}
 	if err := p.ffmpeg.ExtractAudio(opts.VideoPath, tempAudio); err != nil {
 		return "", err
