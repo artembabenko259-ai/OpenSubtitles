@@ -74,7 +74,6 @@ type ProcessDoneMsg struct {
 func NewModel() Model {
 	cfg, _ := engine.LoadConfig()
 
-	// Default scan root to User Home directory (e.g. C:\Users\User)
 	dir, err := os.UserHomeDir()
 	if err != nil || dir == "" {
 		dir, _ = os.Getwd()
@@ -119,11 +118,12 @@ func NewModel() Model {
 
 func isMediaFile(ext string) bool {
 	ext = strings.ToLower(ext)
+	// Explicitly excluded .ts to avoid collision with TypeScript source files
 	mediaExts := map[string]bool{
 		// Video
 		".mp4": true, ".mkv": true, ".mov": true, ".avi": true,
 		".webm": true, ".flv": true, ".wmv": true, ".m4v": true,
-		".3gp": true, ".ts": true,
+		".3gp": true,
 		// Audio
 		".mp3": true, ".wav": true, ".m4a": true, ".aac": true,
 		".flac": true, ".ogg": true, ".opus": true, ".wma": true,
@@ -155,7 +155,6 @@ func normalizeKey(k string) string {
 func (m *Model) loadFiles() {
 	var items []FileItem
 
-	// Recursively scan entire User disk space (Desktop, Downloads, Videos, Documents, etc.)
 	_ = filepath.WalkDir(m.CurrentDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -163,7 +162,6 @@ func (m *Model) loadFiles() {
 
 		if d.IsDir() {
 			name := d.Name()
-			// Skip system / build directories for high speed scanning
 			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "AppData" || name == "$RECYCLE.BIN" || name == "System Volume Information" || name == "Windows" || name == "Program Files" || name == "Program Files (x86)" {
 				return filepath.SkipDir
 			}
